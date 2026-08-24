@@ -1,0 +1,16 @@
+DINOSAM:
+  box_threshold: 0.15
+
+  dinosam_prompt:
+    obj1: "white tumbler ."
+    arm: "human arms . human hands ."
+
+CamTriangulator:
+  pose_method:
+    obj1: "vlm"
+    default: "vlm"
+
+DepthLifter:
+  pose_method:
+    obj1: "vlm"
+    default: "vlm"

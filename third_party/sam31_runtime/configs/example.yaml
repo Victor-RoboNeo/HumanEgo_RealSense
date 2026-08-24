@@ -1,0 +1,15 @@
+# Suggested smoke-test defaults only.
+sam31:
+  prompt: "strawberry"
+  max_frames_first_test: 60
+  select_instance: highest_score
+  compile: false
+  use_flash_attention_3: false
+  async_loading_frames: false
+
+# For text + visual refinement:
+# Positive points should lie well inside the target object.
+# Negative points should lie on the hand/arm region that SAM3.1 incorrectly merges.
+visual_refinement:
+  positive_points: []
+  negative_points: []

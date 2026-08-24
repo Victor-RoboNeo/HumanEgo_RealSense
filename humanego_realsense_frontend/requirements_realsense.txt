@@ -1,0 +1,5 @@
+# Additional packages beyond HumanEgo's normal preprocessing environment
+open3d
+mediapipe
+huggingface_hub
+pyyaml

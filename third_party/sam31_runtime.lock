@@ -1,0 +1,4 @@
+# Vendored in-tree (real files, not a symlink).
+# Previously linked to ../../sam31_humanego_smoketest
+sam3_commit=8f0b7f4d4e7eda2ed606ebde6702c93359ad01da
+checkpoint=checkpoints/sam3.1/sam3.1_multiplex.pt

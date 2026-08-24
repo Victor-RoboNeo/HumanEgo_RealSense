@@ -1,0 +1,20 @@
+# Optional keys to append to cfg/preprocess/base/AriaHands.yaml
+# The add-on works without these because it has defaults.
+
+# WiLoR hand detector / temporal filtering
+realsense_wilor_conf_threshold: 0.20
+realsense_wilor_min_frames: 3
+realsense_wilor_interp_gap: 5
+
+# D455 metric-depth fusion
+realsense_wilor_depth_radius: 5
+realsense_wilor_min_depth_m: 0.08
+realsense_wilor_max_depth_m: 2.50
+realsense_wilor_min_depth_joints: 4
+
+# p_depth ~= s * p_wilor_relative + t
+realsense_wilor_fit_scale: true
+realsense_wilor_scale_min: 0.55
+realsense_wilor_scale_max: 1.80
+realsense_wilor_huber_delta_m: 0.035
+realsense_wilor_depth_residual_gate_m: 0.08

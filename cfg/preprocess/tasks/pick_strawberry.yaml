@@ -1,0 +1,19 @@
+DINOSAM:
+  box_threshold: 0.15
+  sam31_threshold: 0.50
+  sam31_save_debug_video: true
+
+  dinosam_prompt:
+    obj1: "strawberry ."
+    obj2: "a pink plate ."
+    arm: "human arm and hand ."
+
+CamTriangulator:
+  pose_method:
+    obj1: "vlm"
+    default: "vlm"
+
+DepthLifter:
+  pose_method:
+    obj1: "vlm"
+    default: "vlm"

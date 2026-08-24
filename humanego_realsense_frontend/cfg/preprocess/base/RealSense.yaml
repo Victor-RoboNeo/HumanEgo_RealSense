@@ -1,0 +1,20 @@
+# RealSense-specific frontend settings.
+#
+# HumanEgo's existing AriaHands.yaml / AriaPhases.yaml are intentionally reused
+# so thresholds and smoothing remain comparable to the released pipeline.
+
+icp:
+  voxel_size: 0.025
+  max_correspondence: 0.08
+  stride: 3
+  min_depth: 0.20
+  max_depth: 4.0
+  max_iteration: 25
+  min_fitness: 0.12
+
+hands:
+  # Leave null to use HumanEgo's weights/mediapipe/hand_landmarker.task or
+  # auto-download the same model used by preprocess/MediaPipeHands.py.
+  model_path: null
+  local_depth_radius: 5
+  min_valid_depth_landmarks: 5

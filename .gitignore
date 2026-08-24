@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs (HumanEgo conda env is outside the repo; SAM3.1 uses uv .venv)
+.venv/
+venv/
+env/
+
+# Data, captures, training runs — regenerate or download, do not commit
+data/*
+!data/.gitkeep
+runs/*
+!runs/.gitkeep
+captures/
+realsense_linux_rgbd_imu_v2/
+*.vrs
+all_data.tar
+*.zip
+
+# SAM 3.1 gated weights (~3.3 GB). Download with:
+#   python third_party/sam31_runtime/scripts/download_checkpoint.py --source hf
+third_party/sam31_runtime/checkpoints/**/*.pt
+third_party/sam31_runtime/sam31_video_test/
+third_party/sam31_runtime/sam31_video_refine_test/
+third_party/sam31_runtime/sam31_*.jpg
+
+# Model weights downloaded at runtime
+*.pt
+*.pth
+*.onnx
+*.ckpt
+*.pkl
+*.task
+!assets/**
+
+# Logs / experiment trackers
+wandb/
+lightning_logs/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Secrets / local env
+.env
+.env.*
+*.pem
+credentials.json
