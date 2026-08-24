@@ -1,9 +1,6 @@
 # HumanEgo 使用文档
 
-本文说明如何安装、跑通、以及调每一个参数。上游论文仓库是
-[TX-Leo/HumanEgo](https://github.com/TX-Leo/HumanEgo)；本仓库是一份**可独立
-clone 的快照**，已把 SAM 3.1 运行时以真实文件放进 `third_party/sam31_runtime`
-（不是软链接），并包含 RealSense RGB-D 与 WiLoR 手部前端。
+本文是本仓库的参数手册，配合根目录 [README.md](README.md)（RealSense + WiLoR + SAM 3.1 复现说明）使用。方法基于 [TX-Leo/HumanEgo](https://github.com/TX-Leo/HumanEgo)；SAM 3.1 运行时在 `third_party/sam31_runtime`（真实文件，不是软链接）。
 
 更细的阶段说明还在：
 
@@ -679,4 +676,4 @@ git push -u origin main
 HumanEgo 使用 [PolyForm Noncommercial License 1.0.0](LICENSE)（非商业）。SAM 3 源码在
 `third_party/sam31_runtime/third_party/sam3/LICENSE`，权重使用须遵守 Meta / HuggingFace 条款。
 
-请同时引用上游 HumanEgo 论文（见 [README.md](README.md#bibtex)）。
+请同时引用上游 HumanEgo 论文（见 [README.md](README.md) 文末 BibTeX）。
