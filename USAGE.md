@@ -656,7 +656,25 @@ python -m training.FlowMatchingTrainer \
 
 ---
 
-## 14. 许可证与第三方
+## 14. 发布到 GitHub
+
+本目录已经 `git init` 并完成初始提交。本机没有 GitHub 登录凭据，需要你在自己的账号下建仓库再推：
+
+```bash
+cd /data/home/chenxiangyu/victor/HumanEgo
+export PATH="/data/home/chenxiangyu/miniconda3/envs/humanego/bin:$PATH"
+
+# 若已安装 GitHub CLI 并完成 gh auth login：
+gh repo create HumanEgo --private --source . --remote origin --push
+
+# 或在网页新建空仓库后：
+git remote add origin git@github.com:<YOUR_USER>/HumanEgo.git
+git push -u origin main
+```
+
+不要把 `data/`、`runs/`、`*.pt` 权重推上去（已在 `.gitignore`）。SAM 3.1 权重请克隆后按 §3.2 自行下载。
+
+## 15. 许可证与第三方
 
 HumanEgo 使用 [PolyForm Noncommercial License 1.0.0](LICENSE)（非商业）。SAM 3 源码在
 `third_party/sam31_runtime/third_party/sam3/LICENSE`，权重使用须遵守 Meta / HuggingFace 条款。
