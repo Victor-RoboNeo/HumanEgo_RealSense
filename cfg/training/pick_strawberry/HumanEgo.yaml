@@ -1,6 +1,6 @@
-# HumanEgo training config for the `serve_bread` task.
-# Loads the released serve_bread dataset (data_sources: aria) from
-# ./data/serve_bread/aria/mps_serve_bread_*_vrs.
+# HumanEgo training config for pick_strawberry (RealSense + WiLoR).
+# Sessions: data/pick_strawberry/aria/session_*  (symlink to HumanEgo_data/strawberry)
+# Default hands key in training_data.json is still "hands" (hand_tracking_method: aria_mps).
 
 # ---- Optimization & Schedule ----
 epochs: 400
@@ -47,7 +47,7 @@ single_hand: True
 single_hand_side: "right"
 hand_tracking_method: "aria_mps"
 data_sources:
-  aria: 60
+  aria: 18
 eval_source: "aria"
 num_workers: 8
 
@@ -59,7 +59,6 @@ centric_mode: "object_centric"
 frame_mode: "camera_frame"
 action_mode: "absolute"
 max_ict: 8
-
 
 # ---- Model Ablations ----
 use_region_attn: True

@@ -96,6 +96,8 @@ def run_sam31_object_masks(*, image_paths, cfg_path, mps_path, reference_image_p
     threshold = float(_cfg_get(cfg, "sam31_threshold", 0.50))
     save_debug_video = bool(_cfg_get(cfg, "sam31_save_debug_video", True))
     fps = float(_cfg_get(cfg, "fps", 15.0))
+    anchor = str(_cfg_get(cfg, "sam31_anchor", "first_appearance")).strip().lower()
+    search_stride = int(_cfg_get(cfg, "sam31_search_stride", 8))
 
     session_root = Path(mps_path).expanduser().absolute()
     preprocess_dir = session_root / "preprocess"
@@ -109,6 +111,8 @@ def run_sam31_object_masks(*, image_paths, cfg_path, mps_path, reference_image_p
         "threshold": threshold,
         "fps": fps,
         "save_debug_video": save_debug_video,
+        "anchor": anchor,
+        "search_stride": search_stride,
         "output_root": str(preprocess_dir),
     }
     request_path.write_text(json.dumps(request, indent=2), encoding="utf-8")
@@ -120,11 +124,12 @@ def run_sam31_object_masks(*, image_paths, cfg_path, mps_path, reference_image_p
 
     print(
         f"║ [SAM31-v2] frames={len(image_paths)}, "
-        f"ref={Path(reference).parent.name}, objects={list(objects)}"
+        f"ref={Path(reference).parent.name}, "
+        f"anchor={anchor}, objects={list(objects)}"
     )
 
     completed = subprocess.run(
-        [str(launcher), "--request", str(request_path)],
+        ["bash", str(launcher), "--request", str(request_path)],
         cwd=str(humanego_root),
         env=os.environ.copy(),
         check=False,

@@ -231,20 +231,27 @@ def _to_numpy(value):
     return np.asarray(value)
 
 
-def _choose_reference_instance(outputs: dict) -> tuple[int, float]:
+def _try_choose_instance(outputs: dict) -> tuple[int, float] | None:
     ids = _to_numpy(outputs.get("out_obj_ids"))
     probs = _to_numpy(outputs.get("out_probs"))
     if ids is None:
-        raise RuntimeError("SAM3.1 returned no object IDs on reference frame")
+        return None
     ids = np.asarray(ids).reshape(-1)
     if len(ids) == 0:
-        raise RuntimeError("SAM3.1 found no matching object on reference frame")
+        return None
     if probs is None:
         probs = np.ones(len(ids), dtype=np.float32)
     else:
         probs = np.asarray(probs, dtype=np.float32).reshape(-1)
     chosen = int(np.nanargmax(probs))
     return int(ids[chosen]), float(probs[chosen])
+
+
+def _choose_reference_instance(outputs: dict) -> tuple[int, float]:
+    hit = _try_choose_instance(outputs)
+    if hit is None:
+        raise RuntimeError("SAM3.1 found no matching object on reference frame")
+    return hit
 
 
 def _extract_mask(outputs: dict, obj_id: int, hw: tuple[int, int]) -> np.ndarray:
@@ -330,6 +337,127 @@ def _run_forward_sequence(
             print("[SAM31] close_session warning:", repr(exc), flush=True)
 
 
+def _probe_text_on_frame(
+    predictor,
+    image_path: str,
+    prompt: str,
+    threshold: float,
+    probe_dir: Path,
+) -> bool:
+    """True if SAM3.1 text prompt hits on this single RGB frame."""
+    _prepare_cache([image_path], probe_dir)
+    started = predictor.handle_request({
+        "type": "start_session",
+        "resource_path": str(probe_dir),
+    })
+    session_id = started["session_id"]
+    try:
+        prompt_response = predictor.handle_request({
+            "type": "add_prompt",
+            "session_id": session_id,
+            "frame_index": 0,
+            "text": prompt,
+            "output_prob_thresh": float(threshold),
+        })
+        return _try_choose_instance(prompt_response["outputs"]) is not None
+    finally:
+        try:
+            predictor.handle_request({
+                "type": "close_session",
+                "session_id": session_id,
+            })
+        except Exception as exc:
+            print("[SAM31] close_session warning:", repr(exc), flush=True)
+
+
+def _find_first_appearance(
+    predictor,
+    ordered_paths: list[str],
+    prompt: str,
+    threshold: float,
+    probe_dir: Path,
+    stride: int,
+) -> tuple[int | None, int]:
+    """
+    Return (index into ordered_paths, probe_count).
+    Stride forward until the first hit, then walk back inside the last miss window.
+    """
+    n = len(ordered_paths)
+    stride = max(1, int(stride))
+    probed = 0
+    last_miss = -1
+    probe_idx = list(range(0, n, stride))
+    if probe_idx[-1] != n - 1:
+        probe_idx.append(n - 1)
+
+    def _hit(i: int) -> bool:
+        nonlocal probed
+        probed += 1
+        return _probe_text_on_frame(
+            predictor, ordered_paths[i], prompt, threshold, probe_dir
+        )
+
+    for i in probe_idx:
+        if _hit(i):
+            first = i
+            for j in range(last_miss + 1, i):
+                if _hit(j):
+                    first = j
+                    break
+            return first, probed
+        last_miss = i
+    return None, probed
+
+
+def _empty_masks(hw: tuple[int, int], n: int) -> list[np.ndarray]:
+    h, w = hw
+    return [np.zeros((h, w), dtype=np.uint8) for _ in range(n)]
+
+
+def _write_object_masks(
+    ordered_paths: list[str],
+    masks: list[np.ndarray],
+    obj_key: str,
+    prompt: str,
+    anchor_idx: int,
+    fps: float,
+    save_debug_video: bool,
+    run_dir: Path,
+    extra_report: dict,
+) -> dict:
+    frame_info = []
+    for src, mask in zip(ordered_paths, masks):
+        dst = Path(src).parent / f"mask_{obj_key}.png"
+        if not cv2.imwrite(str(dst), mask):
+            raise RuntimeError(f"Could not write {dst}")
+        nz = int(np.count_nonzero(mask))
+        frame_info.append({
+            "source_frame": _frame_index_from_path(src),
+            "mask_nonzero": nz,
+            "mask_area_ratio": float(nz / max(mask.size, 1)),
+        })
+    if save_debug_video:
+        _save_debug_video(
+            ordered_paths, masks, run_dir / f"{obj_key}_track.mp4",
+            obj_key, prompt, anchor_idx, fps
+        )
+    info = {
+        "prompt": prompt,
+        "anchor_source_frame": _frame_index_from_path(ordered_paths[anchor_idx])
+        if 0 <= anchor_idx < len(ordered_paths) else None,
+        "anchor_ordered_idx": anchor_idx,
+        "nonempty_frames": int(sum(x["mask_nonzero"] > 0 for x in frame_info)),
+        "frames": frame_info,
+    }
+    info.update(extra_report)
+    print(
+        f"[SAM31] {obj_key}: nonempty="
+        f"{info['nonempty_frames']}/{len(ordered_paths)}",
+        flush=True,
+    )
+    return info
+
+
 def _save_debug_video(
     ordered_paths: list[str],
     masks: list[np.ndarray],
@@ -411,6 +539,13 @@ def _run_request(request_path: Path) -> int:
     threshold = float(req.get("threshold", 0.50))
     fps = float(req.get("fps", 15.0))
     save_debug_video = bool(req.get("save_debug_video", True))
+    anchor_mode = str(req.get("anchor", "reference")).strip().lower()
+    if anchor_mode not in {"reference", "first_appearance"}:
+        raise ValueError(
+            f"Unknown SAM3.1 anchor mode {anchor_mode!r}; "
+            "use 'reference' or 'first_appearance'"
+        )
+    search_stride = max(1, int(req.get("search_stride", 8)))
     output_root = Path(req["output_root"]).expanduser().absolute()
     run_dir = output_root / ".sam31_v2"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -420,82 +555,95 @@ def _run_request(request_path: Path) -> int:
         raise RuntimeError(f"Cannot read first RGB: {ordered_paths[0]}")
     hw = first.shape[:2]
 
-    forward_paths = ordered_paths[ref_idx:]
-    reverse_paths = list(reversed(ordered_paths[: ref_idx + 1]))
-    forward_cache = run_dir / "forward_frames"
-    reverse_cache = run_dir / "reverse_frames"
-    _prepare_cache(forward_paths, forward_cache)
-    _prepare_cache(reverse_paths, reverse_cache)
-
     predictor = _build_predictor()
     report = {
         "backend": "sam31_uv_v2",
         "runtime_root": str(RUNTIME_ROOT),
         "checkpoint": str(CHECKPOINT),
         "threshold": threshold,
+        "anchor": anchor_mode,
+        "search_stride": search_stride,
         "ordered_source_frames": [_frame_index_from_path(x) for x in ordered_paths],
-        "reference_source_frame": _frame_index_from_path(reference_path),
-        "reference_ordered_idx": ref_idx,
+        "shared_reference_source_frame": _frame_index_from_path(reference_path),
+        "shared_reference_ordered_idx": ref_idx,
         "objects": {},
     }
 
     print(
         f"[SAM31] frames={len(ordered_paths)} "
-        f"ref={_frame_index_from_path(reference_path):05d} "
-        f"objects={list(objects)}",
-        flush=True,
-    )
-    print(
-        f"[SAM31] split forward={len(forward_paths)}, reverse={len(reverse_paths)}",
+        f"shared_ref={_frame_index_from_path(reference_path):05d} "
+        f"anchor={anchor_mode} objects={list(objects)}",
         flush=True,
     )
 
+    forward_cache = run_dir / "forward_frames"
+    reverse_cache = run_dir / "reverse_frames"
+    probe_dir = run_dir / "probe_frame"
+
     for obj_key, prompt in objects.items():
         print(f"[SAM31] {obj_key}: prompt={prompt!r}", flush=True)
+
+        if anchor_mode == "first_appearance":
+            appear_idx, nprobe = _find_first_appearance(
+                predictor, ordered_paths, prompt, threshold, probe_dir, search_stride
+            )
+            if appear_idx is None:
+                print(
+                    f"[SAM31] {obj_key}: never detected "
+                    f"(probed {nprobe} frames); writing empty masks",
+                    flush=True,
+                )
+                report["objects"][obj_key] = _write_object_masks(
+                    ordered_paths, _empty_masks(hw, len(ordered_paths)),
+                    obj_key, prompt, -1, fps, save_debug_video, run_dir,
+                    {"forward": None, "reverse": None, "probes": nprobe},
+                )
+                continue
+
+            print(
+                f"[SAM31] {obj_key}: first appearance "
+                f"source={_frame_index_from_path(ordered_paths[appear_idx]):05d} "
+                f"(probed {nprobe} frames)",
+                flush=True,
+            )
+            forward_paths = ordered_paths[appear_idx:]
+            _prepare_cache(forward_paths, forward_cache)
+            forward_masks, fdiag = _run_forward_sequence(
+                predictor, forward_cache, prompt, threshold, len(forward_paths), hw
+            )
+            merged_masks = _empty_masks(hw, appear_idx) + forward_masks
+            report["objects"][obj_key] = _write_object_masks(
+                ordered_paths, merged_masks,
+                obj_key, prompt, appear_idx, fps, save_debug_video, run_dir,
+                {"forward": fdiag, "reverse": None, "probes": nprobe},
+            )
+            continue
+
+        forward_paths = ordered_paths[ref_idx:]
+        reverse_paths = list(reversed(ordered_paths[: ref_idx + 1]))
+        print(
+            f"[SAM31] {obj_key}: shared-ref split "
+            f"forward={len(forward_paths)}, reverse={len(reverse_paths)}",
+            flush=True,
+        )
+        _prepare_cache(forward_paths, forward_cache)
+        _prepare_cache(reverse_paths, reverse_cache)
         forward_masks, fdiag = _run_forward_sequence(
             predictor, forward_cache, prompt, threshold, len(forward_paths), hw
         )
         reverse_masks, rdiag = _run_forward_sequence(
             predictor, reverse_cache, prompt, threshold, len(reverse_paths), hw
         )
-
-        pre_reference_masks = list(reversed(reverse_masks[1:]))
-        merged_masks = pre_reference_masks + forward_masks
+        merged_masks = list(reversed(reverse_masks[1:])) + forward_masks
         if len(merged_masks) != len(ordered_paths):
             raise RuntimeError(
                 f"Internal merge error: {len(merged_masks)} masks for "
                 f"{len(ordered_paths)} frames"
             )
-
-        frame_info = []
-        for src, mask in zip(ordered_paths, merged_masks):
-            dst = Path(src).parent / f"mask_{obj_key}.png"
-            if not cv2.imwrite(str(dst), mask):
-                raise RuntimeError(f"Could not write {dst}")
-            nz = int(np.count_nonzero(mask))
-            frame_info.append({
-                "source_frame": _frame_index_from_path(src),
-                "mask_nonzero": nz,
-                "mask_area_ratio": float(nz / max(mask.size, 1)),
-            })
-
-        if save_debug_video:
-            _save_debug_video(
-                ordered_paths, merged_masks, run_dir / f"{obj_key}_track.mp4",
-                obj_key, prompt, ref_idx, fps
-            )
-
-        report["objects"][obj_key] = {
-            "prompt": prompt,
-            "forward": fdiag,
-            "reverse": rdiag,
-            "nonempty_frames": int(sum(x["mask_nonzero"] > 0 for x in frame_info)),
-            "frames": frame_info,
-        }
-        print(
-            f"[SAM31] {obj_key}: nonempty="
-            f"{report['objects'][obj_key]['nonempty_frames']}/{len(ordered_paths)}",
-            flush=True,
+        report["objects"][obj_key] = _write_object_masks(
+            ordered_paths, merged_masks,
+            obj_key, prompt, ref_idx, fps, save_debug_video, run_dir,
+            {"forward": fdiag, "reverse": rdiag},
         )
 
     report_path = run_dir / "report.json"

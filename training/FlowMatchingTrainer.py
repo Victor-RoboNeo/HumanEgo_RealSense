@@ -57,6 +57,7 @@ from training.FlowMatchingDataloader import (
     DEFAULT_STATS,
     IMG_NAME
 )
+from training.FlowMatchingMobileloader import FlowMatchingMobileloader
 from training.FlowMatchingModel import FlowMatchingModel
 from training.FlowMatchingEvaluator import run_teacher_forced_vis
 
@@ -224,6 +225,12 @@ class TrainConfig:
     # --- Hand Tracking Method ---
     hand_tracking_method: str = "aria_mps"   # "aria_mps" | "mediapipe" | "wilor" | "hamer"
 
+    # --- Mobile base (SE(2) from c2w; y_action in camera_frame) ---
+    use_mobile_base: bool = False
+    T_cam_in_base: list = None   # 4x4 camera-in-base; None / I => camera XY+yaw is the chassis
+    wipe_cam_radius: bool = True  # de-arc handheld camera; y_action stays in JSON cam0
+    yaw_up: str = "camera-neg-y"  # gravity in cam0 (RealSense OpenCV: -Y)
+
     # --- Flow Matching Inference ---
     num_inference_steps: int = 10
     model_horizon_weighting: str = "uniform"
@@ -257,6 +264,7 @@ def _panel_cfg(cfg: TrainConfig) -> Panel:
         f"[bold]Train/Eval[/bold]: {len(cfg.MPS_PATHS_TRAIN)} sessions / {len(cfg.MPS_PATHS_EVAL)} sessions",
         f"[bold]Paradigm[/bold]: Centric=[cyan]{cfg.centric_mode}[/] | Frame=[cyan]{cfg.frame_mode}[/] | Action=[cyan]{cfg.action_mode}[/] | Image=[cyan]{cfg.img_name}[/]",
         f"[bold]Aux[/bold]: ObjDynamics={cfg.use_aux_obj_dynamics} | VisForesight={cfg.use_aux_visual_foresight} | TempContrastive={cfg.use_aux_temporal_contrastive}",
+        f"[bold]Mobile[/bold]: use_base={cfg.use_mobile_base} wipe_radius={getattr(cfg, 'wipe_cam_radius', False)} up={getattr(cfg, 'yaw_up', '-')}",
         f"[bold]Architecture[/bold]: RegionAttn={cfg.use_region_attn} | PCD={cfg.use_pcd_features} | OT-CFM={cfg.use_ot_cfm} | Hands={'Single' if cfg.single_hand else 'Dual'}",
         f"[bold]Legacy[/bold]: PreNorm={cfg.use_pre_norm} | CtxNorm={cfg.use_ctx_norm} | DoneInFlow={cfg.use_done_in_flow} | LegacyImg={cfg.use_legacy_image_loading} | LegacyRNG={cfg.use_legacy_rng} | AugInterp={cfg.enable_aug_interpolation}",
         f"[bold]Model[/bold]: patch={cfg.patch_size} D={cfg.vision_embed_dim} L={cfg.num_decoder_layers} heads={cfg.num_heads}",
@@ -273,13 +281,23 @@ def is_zero_state(x_ict: torch.Tensor, ict_mask: torch.Tensor, eps: float = 1e-6
 
 def get_dataset_stats(mps_paths: list, cfg: TrainConfig) -> dict:
     console.print(f"[bold yellow]Computing dataset statistics for {len(mps_paths)} sessions...[/]")
-    tmp_ds = FlowMatchingDataloader(
+    DataloaderCls = FlowMatchingMobileloader if cfg.use_mobile_base else FlowMatchingDataloader
+    _kw = {}
+    if cfg.use_mobile_base:
+        _kw = {
+            "T_cam_in_base": cfg.T_cam_in_base,
+            "wipe_cam_radius": cfg.wipe_cam_radius,
+            "yaw_up": cfg.yaw_up,
+        }
+    tmp_ds = DataloaderCls(
         sessions=[MPSSessions(p) for p in mps_paths],
         single_hand=cfg.single_hand, single_hand_side=cfg.single_hand_side,
         centric_mode=cfg.centric_mode, frame_mode=cfg.frame_mode,
         action_mode=cfg.action_mode, img_name=cfg.img_name,
         max_ict=cfg.max_ict,
-        enable_augmentation=False, stats=None
+        enable_augmentation=False, stats=None,
+        hand_tracking_method=cfg.hand_tracking_method,
+        **_kw,
     )
     all_pos =[]
     num_samples = len(tmp_ds)
@@ -435,6 +453,10 @@ def train_one_epoch(
             x_1 = torch.cat([y_action, y_obj_action], dim=-1)  # 19D or 29D
         else:
             x_1 = y_action  # 10D or 20D
+
+        if cfg.use_mobile_base:
+            y_base = batch["y_base"].to(cfg.device, non_blocking=True)
+            x_1 = torch.cat([x_1, y_base], dim=-1)  # +3D SE(2) chassis
 
         # Done-in-flow: append done flag as last dimension of flow target
         if cfg.use_done_in_flow:
@@ -776,7 +798,16 @@ def main(cfg: TrainConfig):
     
     console.print(_panel_cfg(cfg))
     
-    ds_train = FlowMatchingDataloader(
+    DataloaderCls = FlowMatchingMobileloader if cfg.use_mobile_base else FlowMatchingDataloader
+    _mobile_kw = {}
+    if cfg.use_mobile_base:
+        _mobile_kw = {
+            "T_cam_in_base": cfg.T_cam_in_base,
+            "wipe_cam_radius": cfg.wipe_cam_radius,
+            "yaw_up": cfg.yaw_up,
+        }
+
+    ds_train = DataloaderCls(
         sessions=training_sessions,
         image_size=cfg.image_size,
         pred_horizon=cfg.pred_horizon,
@@ -799,9 +830,10 @@ def main(cfg: TrainConfig):
         use_legacy_image_loading=cfg.use_legacy_image_loading,
         use_legacy_rng=cfg.use_legacy_rng,
         seed=cfg.seed, stats=stats,
+        **_mobile_kw,
     )
 
-    ds_eval = FlowMatchingDataloader(
+    ds_eval = DataloaderCls(
         sessions=eval_sessions,
         image_size=cfg.image_size,
         pred_horizon=cfg.pred_horizon,
@@ -818,6 +850,7 @@ def main(cfg: TrainConfig):
         use_legacy_image_loading=cfg.use_legacy_image_loading,
         use_legacy_rng=cfg.use_legacy_rng,
         seed=cfg.seed, stats=stats,
+        **_mobile_kw,
     )
 
     console.print(Panel(f"train samples={len(ds_train)}  eval samples={len(ds_eval)}", title="DATASET", expand=False))
@@ -846,6 +879,7 @@ def main(cfg: TrainConfig):
         use_pre_norm=cfg.use_pre_norm,
         use_ctx_norm=cfg.use_ctx_norm,
         use_done_in_flow=cfg.use_done_in_flow,
+        use_mobile_base=cfg.use_mobile_base,
     ).to(cfg.device)
 
     opt = AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
@@ -1041,6 +1075,13 @@ if __name__ == "__main__":
     parser.add_argument("--hand_tracking_method", type=str, default=None,
                         choices=["aria_mps", "mediapipe", "wilor", "hamer"],
                         help="Hand tracking method to use for training data")
+    parser.add_argument("--use_mobile_base", action="store_true",
+                        help="Predict SE(2) chassis from c2w in addition to camera-frame hand EE")
+    parser.add_argument("--wipe_cam_radius", action="store_true",
+                        help="De-arc handheld camera xy; keep camera_frame y_action in JSON cam0")
+    parser.add_argument("--no_wipe_cam_radius", action="store_true",
+                        help="Disable W* radius wipe; use raw ICP c2w for y_base")
+    parser.add_argument("--yaw_up", type=str, default=None, choices=["camera-neg-y", "world-z"])
     
     parser.add_argument("--use_pcd_features", action="store_true", dest="use_pcd_features")
     parser.add_argument("--use_aux_obj_dynamics", action="store_true")
@@ -1185,6 +1226,10 @@ if __name__ == "__main__":
     if args.action_mode is not None: cfg.action_mode = args.action_mode
     
     if args.hand_tracking_method is not None: cfg.hand_tracking_method = args.hand_tracking_method
+    if args.use_mobile_base: cfg.use_mobile_base = True
+    if args.wipe_cam_radius: cfg.wipe_cam_radius = True
+    if args.no_wipe_cam_radius: cfg.wipe_cam_radius = False
+    if args.yaw_up is not None: cfg.yaw_up = args.yaw_up
     if args.use_pcd_features: cfg.use_pcd_features = True
     if args.use_aux_obj_dynamics: cfg.use_aux_obj_dynamics = True
     if args.use_aux_visual_foresight: cfg.use_aux_visual_foresight = True

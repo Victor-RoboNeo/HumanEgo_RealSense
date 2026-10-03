@@ -32,6 +32,7 @@ fi
 echo "[4/5] Installing SAM3 and smoke-test deps"
 uv pip install -e "$SAM3_ROOT"
 uv pip install opencv-python pillow numpy tqdm huggingface_hub modelscope
+uv pip install einops pycocotools psutil
 
 echo "[5/5] Environment check"
 python "$ROOT/scripts/check_env.py"

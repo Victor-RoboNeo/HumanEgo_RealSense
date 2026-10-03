@@ -241,7 +241,7 @@ class FlowMatchingDataloader(Dataset):
                 if not os.path.exists(jpath):
                     continue
 
-                d0 = read_json(jpath)
+                d0 = self._read_json_raw(jpath)
                 if d0 is None or not self._frame_has_required_fields(d0):
                     continue
 
@@ -262,6 +262,13 @@ class FlowMatchingDataloader(Dataset):
         if self.single_hand and self.single_hand_side not in hands:
             return False
         return True
+
+    def _read_json_raw(self, path: str):
+        return read_json(path)
+
+    def _read_json(self, path: str):
+        """Hook for subclasses to rewrite poses (e.g. wipe camera-arc radius)."""
+        return self._read_json_raw(path)
 
     def _get_future_json_path(self, json_path: str, step: int) -> str:
         frame_dir = os.path.dirname(json_path)
@@ -482,7 +489,7 @@ class FlowMatchingDataloader(Dataset):
 
         for k in range(1, K + 1):
             fut_idx = k * stride 
-            dk = read_json(self._get_future_json_path(json_path0, fut_idx))
+            dk = self._read_json(self._get_future_json_path(json_path0, fut_idx))
             
             # Forward Fill if JSON is missing
             if not dk:
@@ -659,7 +666,7 @@ class FlowMatchingDataloader(Dataset):
     # ---------------------
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         json_path0 = self.samples[idx]
-        d0 = read_json(json_path0)
+        d0 = self._read_json(json_path0)
 
         # 1. Temporal Speed Perturbation: Safe Dynamic Stride Sample
         stride = 1
@@ -685,7 +692,7 @@ class FlowMatchingDataloader(Dataset):
             if np.random.rand() < AUG_INTERP_PROB:
                 alpha = np.random.rand()
 
-        d1 = read_json(json_path1) if alpha > 0 else d0
+        d1 = self._read_json(json_path1) if alpha > 0 else d0
         d_vis = d1 if alpha > 0.5 else d0  # Use visually closer frame for image
 
         # 3. Load Visual Representation
@@ -730,7 +737,7 @@ class FlowMatchingDataloader(Dataset):
         if self.use_aux_temporal_contrastive:
             future_idx_offset = self.pred_horizon * stride
             future_path = self._get_future_json_path(json_path0, future_idx_offset)
-            d_fut = read_json(future_path)
+            d_fut = self._read_json(future_path)
 
             if not d_fut:
                 d_fut = d0

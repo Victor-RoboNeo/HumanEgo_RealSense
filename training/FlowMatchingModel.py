@@ -178,6 +178,7 @@ class FlowMatchingModel(nn.Module):
         use_pre_norm: bool = True,           # False = Post-Norm (legacy)
         use_ctx_norm: bool = True,           # False = no LayerNorm on context (legacy)
         use_done_in_flow: bool = False,      # True = Done flag in flow matching dim (legacy)
+        use_mobile_base: bool = False,       # +3D SE(2) chassis after hand/obj action
     ):
         super().__init__()
         self.single_hand = single_hand
@@ -196,13 +197,17 @@ class FlowMatchingModel(nn.Module):
         self.use_pre_norm = use_pre_norm
         self.use_ctx_norm = use_ctx_norm
         self.use_done_in_flow = use_done_in_flow
+        self.use_mobile_base = use_mobile_base
 
         # --- Action Dimensions (Unified Joint Manifold Router) ---
         self.num_hands = 1 if single_hand else 2
         self.base_action_dim = 10 * self.num_hands
         self.obj_action_dim = 9 if self.use_aux_obj_dynamics else 0
+        self.mobile_base_dim = 3 if self.use_mobile_base else 0
         self.done_in_flow_dim = 1 if self.use_done_in_flow else 0
-        self.action_dim = self.base_action_dim + self.obj_action_dim + self.done_in_flow_dim
+        self.action_dim = (
+            self.base_action_dim + self.obj_action_dim + self.mobile_base_dim + self.done_in_flow_dim
+        )
 
         # -------------------------------
         # Core Embeddings
@@ -433,6 +438,11 @@ class FlowMatchingModel(nn.Module):
         if self.use_aux_obj_dynamics:
             w_dim[..., base_D : base_D+3] = w_p * 0.5
             w_dim[..., base_D+3 : base_D+9] = w_r * 0.5
+
+        if self.use_mobile_base:
+            off = base_D + self.obj_action_dim
+            w_dim[..., off : off + 2] = w_p
+            w_dim[..., off + 2 : off + 3] = w_r
 
         # Done-in-flow: apply w_done weight to the last dimension
         if self.use_done_in_flow:

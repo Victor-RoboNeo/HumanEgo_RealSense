@@ -25,6 +25,7 @@ realsense_linux_rgbd_imu_v2/
 *.vrs
 all_data.tar
 *.zip
+HumanEgo_data
 
 # SAM 3.1 gated weights (~3.3 GB). Download with:
 #   python third_party/sam31_runtime/scripts/download_checkpoint.py --source hf
@@ -60,3 +61,9 @@ Thumbs.db
 .env.*
 *.pem
 credentials.json
+
+# hardware urdf
+hardware/*
+
+# replay output
+retarget/outputs

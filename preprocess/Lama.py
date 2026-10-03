@@ -42,9 +42,16 @@ import uuid
 import atexit
 import tempfile
 import subprocess
+from pathlib import Path
+from urllib.request import urlretrieve
+
 import cv2
 import numpy as np
 import onnxruntime as ort
+
+# huggingface.co is often unreachable on campus; huggingface_hub reads this at import.
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 from huggingface_hub import hf_hub_download
 
 from utils.utils_vis import draw_glass_rect, draw_status_bar
@@ -75,6 +82,45 @@ def setup_cuda_paths():
 setup_cuda_paths()
 
 
+def _resolve_lama_onnx(cfg) -> str:
+    """Prefer a local ONNX, then hf-mirror, then a direct URL download."""
+    filename = str(cfg.lama_filename)
+    repo_id = str(cfg.lama_repo_id)
+    local_path = (
+        Path(__file__).resolve().parents[1] / "third_party" / "weights" / filename
+    )
+    if local_path.is_file() and local_path.stat().st_size > 1_000_000:
+        print(f"║ [LAMA] using local weights: {local_path}")
+        return str(local_path)
+
+    endpoint = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com").rstrip("/")
+    errors = []
+    try:
+        path = hf_hub_download(repo_id=repo_id, filename=filename)
+        print(f"║ [LAMA] downloaded via huggingface_hub ({endpoint}): {path}")
+        return path
+    except Exception as exc:
+        errors.append(f"hf_hub_download: {exc}")
+
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    url = f"{endpoint}/{repo_id}/resolve/main/{filename}"
+    print(f"║ [LAMA] Hub cache miss; downloading {url}")
+    try:
+        urlretrieve(url, str(local_path))
+        if local_path.stat().st_size > 1_000_000:
+            return str(local_path)
+        errors.append(f"direct download too small: {local_path.stat().st_size} bytes")
+    except Exception as exc:
+        errors.append(f"direct {url}: {exc}")
+        if local_path.is_file():
+            local_path.unlink()
+
+    raise RuntimeError(
+        "Could not fetch LaMa ONNX. Tried local cache, HuggingFace Hub, "
+        f"and {url}. Last errors: " + " | ".join(errors)
+    )
+
+
 # ==============================================================================
 # [Engine] LaMa Inpainting Engine
 # ==============================================================================
@@ -89,8 +135,7 @@ class LamaEngine:
 
         print(f"║ [System] Initializing LaMa Inpainter on GPU...")
         
-        # Download or retrieve cached model from HuggingFace Hub
-        model_path = hf_hub_download(repo_id=self.cfg.lama_repo_id, filename=self.cfg.lama_filename)
+        model_path = _resolve_lama_onnx(self.cfg)
         
         # Configure ONNX Runtime Providers for optimal GPU execution
         providers =[

@@ -13,6 +13,9 @@ sam2_config: "configs/sam2/sam2_hiera_t.yaml"
 # RealSense sessions call SAM 3.1 via third_party/sam31_runtime (vendored, not a symlink).
 sam31_threshold: 0.50            # instance score cutoff for SAM 3.1 text/video tracking
 sam31_save_debug_video: true     # write debug mp4 under <session>/preprocess/.sam31_v2/
+sam31_anchor: first_appearance   # first_appearance: per-object first detected frame, then track forward
+                                 # reference: shared CoTracker.ref_idx for every object
+sam31_search_stride: 8           # coarse stride when searching first_appearance
 
 # --- Visual Prompts ---
 dinosam_prompt:

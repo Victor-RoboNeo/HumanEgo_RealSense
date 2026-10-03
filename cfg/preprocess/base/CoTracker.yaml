@@ -33,7 +33,7 @@ object_centric_min_frames: 30  # Minimum required length for the object-centric 
 # Determines which frame in the filtered sequence is used as the master reference 
 # for SAM2 segmentation and keypoint generation.
 
-ref_idx: 0                   # The index of the frame where tracking queries (keypoints) are initialized.
+ref_idx: 0                  # The index of the frame where tracking queries (keypoints) are initialized.
                              # Supports Python list indexing (e.g., 0 = first frame).
                              # Set to -1 to use the VERY LAST frame of the "object-centric" (Nav) sequence, 
                              # which corresponds to the exact moment right before the hand touches the object.

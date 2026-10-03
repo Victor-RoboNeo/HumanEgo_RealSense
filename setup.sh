@@ -195,9 +195,32 @@ fi
 # [6/7] Patches
 # ==============================================================================
 step "[6/7] Applying compatibility patches"
+PYTHON="$(command -v python)"
+PYVER=$("$PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+SITE_PACKAGES="$("$PYTHON" -c 'import site; print(site.getsitepackages()[0])')"
+CONDA_LIB="$(cd "$(dirname "$PYTHON")/../lib" && pwd)"
 
-PYVER=$($PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-SITE_PACKAGES="$($PYTHON -c 'import site; print(site.getsitepackages()[0])')"
+# Headless GPU nodes often have NVIDIA EGL but not GLVND libEGL.so.1. Open3D
+# links it at import time. Vendor the .deb into the conda env (no sudo).
+if ! "$PYTHON" -c "import open3d" >/dev/null 2>&1; then
+    _o3d_err="$("$PYTHON" -c "import open3d" 2>&1 || true)"
+    if printf '%s' "$_o3d_err" | grep -q "libEGL.so.1"; then
+        info "Open3D missing libEGL.so.1; vendoring libegl1 into $CONDA_LIB"
+        _egl_tmp="$(mktemp -d)"
+        if (cd "$_egl_tmp" && apt-get download libegl1 >/dev/null && dpkg-deb -x libegl1_*.deb out); then
+            cp -a "$_egl_tmp"/out/usr/lib/x86_64-linux-gnu/libEGL.so* "$CONDA_LIB/"
+            if "$PYTHON" -c "import open3d" >/dev/null 2>&1; then
+                info "Open3D import OK after vendoring libEGL"
+            else
+                warn "libEGL vendored but Open3D still fails to import"
+            fi
+        else
+            warn "could not download libegl1 (need libEGL.so.1 for Open3D on this node)"
+        fi
+        rm -rf "$_egl_tmp"
+    fi
+    unset _o3d_err _egl_tmp
+fi
 
 # --- Patch chumpy for Python 3.11+ / NumPy 2.x ---
 CHUMPY_DIR="$SITE_PACKAGES/chumpy"
@@ -253,7 +276,7 @@ VERIFY_OK=true
 check_import() {
     local name="$1"
     local code="$2"
-    if $PYTHON -c "$code" 2>/dev/null; then
+    if "$PYTHON" -c "$code" >/dev/null 2>&1; then
         echo -e "  ${GREEN}✓${NC} $name"
     else
         echo -e "  ${RED}✗${NC} $name"

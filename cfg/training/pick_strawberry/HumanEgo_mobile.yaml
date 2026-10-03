@@ -1,0 +1,99 @@
+# Mobile pick_strawberry: paper camera_frame hand EE (y_action) + SE(2) base.
+# T_ref = metadata.world_transforms.cam0 (OpenCV, same as HumanEgo.yaml / dataloader).
+# wipe_cam_radius de-arcs the handheld camera; it does not replace cam0.
+# Execute as: T_ee_in_base = inv(T_base_world) @ T_ee_world
+#
+# Train:
+#   python -m training.FlowMatchingTrainer --task pick_strawberry --use_cfg --job HumanEgo_mobile
+
+# ---- Optimization & Schedule ----
+epochs: 400
+batch_size: 32
+lr: 1.0e-4
+weight_decay: 1.0e-2
+grad_clip: 1.0
+use_lr_schedule: True
+warmup_steps: 200
+min_lr_ratio: 0.05
+use_amp: True
+
+# ---- EMA ----
+use_ema: True
+ema_decay: 0.999
+
+# ---- Model Hyperparams ----
+num_inference_steps: 20
+model_h_weighting: "uniform"
+model_h_beta: 0.0
+patch_size: 16
+vision_embed_dim: 384
+num_decoder_layers: 6
+num_heads: 8
+mlp_ratio: 4.0
+dropout: 0.05
+
+# ---- Evaluation ----
+eval_every: 1
+vis_eval_every: 100
+
+# ---- Augmentations ----
+use_legacy_rng: True
+enable_augmentation: True
+enable_aug_img: True
+enable_aug_rrc: True
+enable_aug_target_jittering: True
+enable_aug_cutout: True
+enable_aug_interpolation: True
+enable_aug_temporal_stride: False
+
+# ---- Data & Task ----
+single_hand: True
+single_hand_side: "right"
+hand_tracking_method: "aria_mps"
+data_sources:
+  aria: 18
+eval_source: "aria"
+num_workers: 8
+
+# ---- Paradigm Ablations ----
+pred_horizon: 50
+img_name: "rgb_WoArm_WArmObjKpts.png"
+image_size: [240, 320]
+centric_mode: "object_centric"
+frame_mode: "camera_frame"
+action_mode: "absolute"
+max_ict: 8
+
+# ---- Mobile base (virtual chassis from Aria/RealSense c2w) ----
+use_mobile_base: True
+# Camera pose relative to the chassis. Identity = treat projected camera XY+yaw as the base.
+T_cam_in_base:
+  - [1.0, 0.0, 0.0, 0.0]
+  - [0.0, 1.0, 0.0, 0.0]
+  - [0.0, 0.0, 1.0, 0.0]
+  - [0.0, 0.0, 0.0, 1.0]
+# Wipe handheld camera lever-arm: y_base xy frozen, yaw only; y_action in cam0.
+wipe_cam_radius: True
+yaw_up: camera-neg-y
+
+# ---- Model Ablations ----
+use_region_attn: True
+use_ot_cfm: False
+use_pre_norm: True
+use_ctx_norm: True
+use_done_in_flow: False
+use_legacy_image_loading: True
+
+# ---- Loss Weights ----
+w_flow: 1.0
+w_pos: 5.0
+w_rot: 1.0
+w_g: 10.0
+w_done: 0.2
+
+# ---- Aux -----
+use_aux_obj_dynamics: False
+use_aux_visual_foresight: False
+w_foresight: 20.0
+use_aux_temporal_contrastive: False
+w_contrastive: 0.1

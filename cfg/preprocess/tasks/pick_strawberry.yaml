@@ -1,10 +1,12 @@
 DINOSAM:
-  box_threshold: 0.15
-  sam31_threshold: 0.50
+  box_threshold: 0.1
+  sam31_threshold: 0.3
   sam31_save_debug_video: true
+  sam31_anchor: first_appearance
+  sam31_search_stride: 8
 
   dinosam_prompt:
-    obj1: "strawberry ."
+    obj1: "a strawberry ."
     obj2: "a pink plate ."
     arm: "human arm and hand ."
 
@@ -17,3 +19,6 @@ DepthLifter:
   pose_method:
     obj1: "vlm"
     default: "vlm"
+
+CoTracker:
+  ref_idx: -1
